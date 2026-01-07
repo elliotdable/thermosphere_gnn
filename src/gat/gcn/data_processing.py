@@ -267,30 +267,59 @@ def parallel_build_edges(indices, latlonalt_positions, unix_times, edge_count=10
     return edge_index, edge_attr
 
 # --- Extract Time Series Features ---
-def get_past_timeseries(df, current_time, feature_cols, window_hours, end_offset=pd.Timedelta(minutes=60)):
+def get_past_timeseries( df, current_time, feature_cols, window_hours, end_offset=pd.Timedelta(minutes=60),
+    mode="raw", stats=("mean", "std", "min", "max", "median", "sum")):
     """
-    Slice a past time window and return the flattened values of selected columns.
-    
+    Slice a past time window and return either:
+      - raw flattened time series, or
+      - summary statistics per feature
+
     Args:
-        df : DataFrame with a 'datetime' column and feature columns
-        current_time : timestamp (from fpi_df) to anchor the lookback window
-        feature_cols : list[str] columns to extract from df
-        window_hours : float | int, how many hours to look back
-        end_offset : pd.Timedelta, offset to end the window before current_time (default 60)
-                        calculated roughly by the time-lag, propagation of solar wind to Earth and
-                        atmospheric response delay
+        df: DataFrame with a 'datetime' column and feature columns
+        current_time: Timestamp to anchor the window
+        feature_cols: List of feature columns to extract
+        window_hours: Length of the time window in hours
+        end_offset: Time delta to offset the end of the window from current_time
+        mode: "raw" for flattened time series, "summary" for statistics
+        stats: List of statistics to compute if mode is "summary"   
+
     Returns:
-        1D np.array of the selected columns over the window, flattened row-major
+        np.ndarray: 1D array of extracted features
     """
+
     end_time = current_time - pd.Timedelta(end_offset)
-    start_time = end_time - pd.Timedelta(hours=window_hours) - pd.Timedelta(end_offset)
+    start_time = end_time - pd.Timedelta(hours=window_hours)
+
     mask = (df["datetime"] >= start_time) & (df["datetime"] < end_time)
-    
-    # Select only the requested feature columns
-    window = df.loc[mask, feature_cols]
-    # Ensure column order is exactly as provided
-    window = window.reindex(columns=feature_cols)
-    return window.to_numpy().ravel()  # flatten
+    window = df.loc[mask, feature_cols].reindex(columns=feature_cols)
+
+    if window.empty:
+        if mode == "raw":
+            return np.full(len(feature_cols), np.nan)
+        else:
+            return np.full(len(feature_cols) * len(stats), np.nan)
+
+    # --- Handle modes ---
+    if mode == "raw":
+        return window.to_numpy().ravel(order="C")
+
+    summary_funcs = {
+        "mean": window.mean,
+        "std": window.std,
+        "min": window.min,
+        "max": window.max,
+        "median": window.median,
+        "sum": window.sum,
+    }
+
+    values = []
+    for stat in stats:
+        if stat not in summary_funcs:
+            raise ValueError(f"Unknown stat: {stat}")
+        values.append(summary_funcs[stat]().to_numpy())
+
+    return np.concatenate(values)
+
 
 # --- Combined Feature Builder ---
 def get_node_features_with_timeseries(
@@ -301,7 +330,8 @@ def get_node_features_with_timeseries(
     geomag_feature_cols,        # <-- columns to pull from geomag_df
     num_workers=10,
     imf_hours=3,
-    geomag_days=0.5
+    geomag_days=0.5,
+    mode="raw",
 ):
     """
     Build node features composed of:
@@ -339,12 +369,12 @@ def get_node_features_with_timeseries(
     # --------------------------------------------------
 
     # --- Helper to fetch both windows for a given fpi timestamp
-    def get_both_timeseries(t, imf_cols, geomag_cols):
+    def get_both_timeseries(t, imf_cols, geomag_cols, mode):
         imf_feat = get_past_timeseries(
-            imf_df, t, imf_cols, window_hours=imf_hours, end_offset=pd.Timedelta(minutes=30)
+            imf_df, t, imf_cols, window_hours=imf_hours, end_offset=pd.Timedelta(minutes=30), mode=mode
         )
         geomag_feat = get_past_timeseries(
-            geomag_df, t, geomag_cols, window_hours=geomag_days * 24, end_offset=pd.Timedelta(minutes=0)
+            geomag_df, t, geomag_cols, window_hours=geomag_days * 24, end_offset=pd.Timedelta(minutes=0), mode=mode
         )
         return imf_feat, geomag_feat
 
@@ -356,7 +386,8 @@ def get_node_features_with_timeseries(
                 get_both_timeseries,
                 fpi_df["datetime"],          # iterable arg
                 repeat(imf_feature_cols),    # constant arg
-                repeat(geomag_feature_cols)  # constant arg
+                repeat(geomag_feature_cols),  # constant arg
+                repeat(mode),                # constant arg
             )
         )
     print("Time series features extracted.", file=sys.stdout, flush=True)
@@ -494,7 +525,7 @@ def train_data_object(fpi_path, imf_path, geomag_path, start_date, end_date, imf
     features, feature_layout = get_node_features_with_timeseries(
         fpi_df_filtered, imf_df, geomag_df,
         imf_feature_cols, geomag_feature_cols,
-        num_workers, imf_hours, geomag_days
+        num_workers, imf_hours, geomag_days, mode="summary"
     )
     print("Attached node features.", file=sys.stdout, flush=True)
 
@@ -619,9 +650,7 @@ def train_data_object(fpi_path, imf_path, geomag_path, start_date, end_date, imf
     #target_error = torch.tensor(
      #   fpi_df_filtered[f"{target_col}_error"].values, dtype=torch.float32)
 
-    src = edge_index[0]
-    dst = edge_index[1]
-
+    # Standard PyG Data
     data = Data(
         x=x,
         edge_index=edge_index,
@@ -632,12 +661,7 @@ def train_data_object(fpi_path, imf_path, geomag_path, start_date, end_date, imf
     data.val_mask = val_mask
     data.test_mask = test_mask
 
-    num_nodes = data.x.size(0)
-    assert data.edge_index.min() >= 0
-    assert data.edge_index.max() < num_nodes
-    assert data.x.device == data.edge_index.device
-
-    print("Created GAT inference Data object.", flush=True)
+    print("Created GCN Data object.", file=sys.stdout, flush=True)
 
     for name in [
         "fpi_df_filtered", "imf_df", "geomag_df",
@@ -720,8 +744,7 @@ def inference_data_object( fpi_df,imf_path,geomag_path, start_date, end_date, im
         imf_df.set_index("datetime")
               .resample(imf_resample).mean()
               .interpolate()
-              .reset_index()
-    )
+              .reset_index())
 
     # Filter FPI input times
     fpi_df["datetime"] = pd.to_datetime(fpi_df["datetime"])
@@ -751,16 +774,13 @@ def inference_data_object( fpi_df,imf_path,geomag_path, start_date, end_date, im
 
     # Base features - MinMax
     raw_features[:, idx_base] = base_scaler.transform(
-        raw_features[:, idx_base]
-    )
+        raw_features[:, idx_base])
     # IMF - Standard
     raw_features[:, idx_imf] = imf_scaler.transform(
-        raw_features[:, idx_imf]
-    )
+        raw_features[:, idx_imf])
     # Geomag - Standard
     raw_features[:, idx_geomag] = geomag_scaler.transform(
-        raw_features[:, idx_geomag]
-    )
+        raw_features[:, idx_geomag])
 
     if use_pca:
         features = pca.transform(raw_features)
@@ -792,9 +812,6 @@ def inference_data_object( fpi_df,imf_path,geomag_path, start_date, end_date, im
     edge_attr = edge_attr_scaler.transform(edge_attr)
     edge_attr = torch.tensor(edge_attr, dtype=torch.float32)
 
-    src = edge_index[0]
-    dst = edge_index[1]
-
     # Prepare the target (scaled with stored scaler)
     if target_col in fpi_df.columns:
         y_raw = fpi_df[target_col].values.astype(np.float32).reshape(-1, 1)
@@ -811,8 +828,7 @@ def inference_data_object( fpi_df,imf_path,geomag_path, start_date, end_date, im
         y=y
     )
     # inference → no masks
-    print("Created GAT inference Data object.", flush=True)
-
+    print("Created GCN inference Data object.", flush=True)
     
     for name in [
         "imf_df","geomag_df","raw_features","features",

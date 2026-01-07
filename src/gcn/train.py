@@ -60,9 +60,10 @@ def eval_loader_physical(loader, model, device, y_scaler):
     return rmse_phys
 
 def train_with_neighbour_sampling_gcn(data, in_channels, model_path,
-                                 hidden_dim=32, dropout_in=0.1, dropout_hidden=0.3, epochs=1000,
-                                 batch_size=512, learning_rate=1e-3, num_workers=10,
-                                 enable_profiling='false', use_amp=True, patience=10):
+                                hidden_dim=32, dropout_in=0.1, dropout_hidden=0.3, epochs=1000,
+                                batch_size=512, learning_rate=1e-3, num_neighbors_l1=15,
+                                num_neighbors_l2=10,num_workers=10,
+                                enable_profiling='false', use_amp=True, patience=10):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.backends.cudnn.benchmark = True
@@ -100,7 +101,7 @@ def train_with_neighbour_sampling_gcn(data, in_channels, model_path,
         return NeighborLoader(
             data,
             input_nodes=input_nodes,
-            num_neighbors=[15, 10],
+            num_neighbors=[num_neighbors_l1, num_neighbors_l2],
             batch_size=batch_size,
             shuffle=is_train,
             pin_memory=True,       

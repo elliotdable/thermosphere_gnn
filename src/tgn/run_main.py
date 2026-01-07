@@ -39,7 +39,7 @@ def write_run_to_csv(csv_path, args, test_loss, test_rmse, test_rmse_phys):
         "imf_feature_cols", "geomag_feature_cols",
         "edge_count", "imf_hours", "geomag_days",
         "hidden_dim", "dropout_in", "dropout_hidden",
-        "epochs", "batch_size", "learning_rate",
+        "epochs", "batch_size", "num_neighbors_l1", "num_neighbors_l2", "learning_rate",
         "imf_resample", "num_workers", "enable_profiling",
         "patience", "period", "net_type", "use_pca"
     ]
@@ -145,6 +145,12 @@ def main():
 
     parser.add_argument('--batch_size', '-bs', type=int, default=512,
                         help='Batch size used by NeighborLoader during training.')
+    
+    parser.add_argument('num_neighbors_l1', '-nn1', type=int, default=15,
+                        help='Number of neighbors to sample at the first GNN layer.')   
+    
+    parser.add_argument('num_neighbors_l2', '-nn2', type=int, default=10,
+                        help='Number of neighbors to sample at the second GNN layer.')
 
     parser.add_argument('--learning_rate', '-lr', type=float, default=1e-3,
                         help='Initial learning rate for the Adam optimizer.')
@@ -232,6 +238,10 @@ def main():
         model_path=model_path,
         hidden_dim=args.hidden_dim,
         batch_size=args.batch_size,
+        dropout_in=args.dropout_in,
+        dropout_hidden=args.dropout_hidden,
+        num_neighbors_l1=args.num_neighbors_l1,
+        num_neighbors_l2=args.num_neighbors_l2,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
         patience=args.patience,

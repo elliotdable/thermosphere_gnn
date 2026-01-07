@@ -41,6 +41,8 @@ HIDDEN_DIM=64
 DROPOUT_IN=0.05
 DROPOUT_HIDDEN=0.1
 BATCH_SIZE=256
+NUM_NEIGHBOURS_L1=15
+NUM_NEIGHBOURS_L2=10
 IMF_RESAMPLE="15min"
 PATIENCE=100
 PROFILING="false" 
@@ -99,6 +101,8 @@ apptainer exec --nv \
       --dropout_hidden $DROPOUT_HIDDEN \
       --epochs $EPOCHS \
       --batch_size $BATCH_SIZE \
+      --num_neighbours_l1 $NUM_NEIGHBOURS_L1 \
+      --num_neighbours_l2 $NUM_NEIGHBOURS_L2 \
       --learning_rate $LEARNING_RATE \
       --imf_resample $IMF_RESAMPLE \
       --patience $PATIENCE \

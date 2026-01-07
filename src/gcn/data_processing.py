@@ -9,7 +9,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import os
 from itertools import repeat
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.decomposition import PCA
 from torch_geometric.data import TemporalData
 
@@ -525,7 +525,7 @@ def train_data_object(fpi_path, imf_path, geomag_path, start_date, end_date, imf
     features, feature_layout = get_node_features_with_timeseries(
         fpi_df_filtered, imf_df, geomag_df,
         imf_feature_cols, geomag_feature_cols,
-        num_workers, imf_hours, geomag_days, mode="summary"
+        num_workers, imf_hours, geomag_days, mode="raw"
     )
     print("Attached node features.", file=sys.stdout, flush=True)
 
@@ -582,9 +582,9 @@ def train_data_object(fpi_path, imf_path, geomag_path, start_date, end_date, imf
     train_feats = features[train_np_mask]
 
     # Create scalers
-    base_scaler   = MinMaxScaler()
-    imf_scaler    = StandardScaler()
-    geomag_scaler = StandardScaler()
+    base_scaler   = RobustScaler()
+    imf_scaler    = RobustScaler()
+    geomag_scaler = RobustScaler()
 
     # Fit scalers ONLY on train nodes
     base_scaler.fit(train_feats[:, idx_base])

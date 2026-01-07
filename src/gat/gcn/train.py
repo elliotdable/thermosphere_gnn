@@ -12,7 +12,7 @@ from contextlib import nullcontext
 import math
 import numpy as np
 
-from model import SpatioTemporalGAT
+from model import SpatioTemporalGCN
 
 # --- Signal Handler ---
 def create_signal_handler(model, model_path):
@@ -59,18 +59,17 @@ def eval_loader_physical(loader, model, device, y_scaler):
     rmse_phys = (se_sum / n) ** 0.5
     return rmse_phys
 
-def train_with_neighbour_sampling_gat(data, in_channels, model_path,
+def train_with_neighbour_sampling_gcn(data, in_channels, model_path,
                                  hidden_dim=32, dropout_in=0.1, dropout_hidden=0.3, epochs=1000,
-                                 batch_size=512, num_neighbors_l1=15, num_neighbors_l2=10, learning_rate=1e-3, num_workers=10,
+                                 batch_size=512, learning_rate=1e-3, num_workers=10,
                                  enable_profiling='false', use_amp=True, patience=10):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.backends.cudnn.benchmark = True
-    data = data.cpu()  # ensure data is on CPU before loading to device in batches
 
     y_scaler = torch.load(os.path.join(model_path, 'target_scaler.pt'))
 
-    model = SpatioTemporalGAT(
+    model = SpatioTemporalGCN(
         in_channels=in_channels,
         edge_attr_dim=data.edge_attr.shape[1],
         hidden_channels=hidden_dim,
@@ -82,11 +81,10 @@ def train_with_neighbour_sampling_gat(data, in_channels, model_path,
     torch.set_float32_matmul_precision('medium')  # or 'medium' for more speed, less precision
 
     # Torch 2.x compile (if stable with your stack)
-    if os.environ.get("DISABLE_COMPILE", "0") != "1":
-        try:
-            model = torch.compile(model)
-        except Exception as e:
-            print(f"Warning: torch.compile failed: {e}")
+    try:
+        model = torch.compile(model)
+    except Exception as e:
+        print(f"Warning: torch.compile failed: {e}")
 
     # Optimizer, scheduler, scaler
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=5e-4)
@@ -102,7 +100,7 @@ def train_with_neighbour_sampling_gat(data, in_channels, model_path,
         return NeighborLoader(
             data,
             input_nodes=input_nodes,
-            num_neighbors=[num_neighbors_l1, num_neighbors_l2],
+            num_neighbors=[15, 10],
             batch_size=batch_size,
             shuffle=is_train,
             pin_memory=True,       
@@ -110,8 +108,6 @@ def train_with_neighbour_sampling_gat(data, in_channels, model_path,
             persistent_workers=num_workers > 0,  # keeps workers warm
             prefetch_factor=2 if num_workers > 0 else None
         )
-
-    data.num_nodes = data.x.size(0)
 
     train_loader = make_loader(data.train_mask, is_train=True)
     val_loader = make_loader(data.val_mask, is_train=False)
@@ -162,20 +158,8 @@ def train_with_neighbour_sampling_gat(data, in_channels, model_path,
 
             for batch in train_loader:
                 batch = batch.to(device, non_blocking=True)
-                assert batch.edge_index.max().item() < batch.x.size(0)
                 optimizer.zero_grad(set_to_none=True)
                 with autocast(enabled=use_amp):
-                    E = batch.edge_index.size(1)
-                    N = batch.x.size(0)
-
-                    assert batch.edge_index.dtype == torch.long
-                    assert batch.edge_index.min().item() >= 0
-                    assert batch.edge_index.max().item() < N, (batch.edge_index.max().item(), N)
-
-                    if batch.edge_attr is not None:
-                        assert batch.edge_attr.size(0) == E, (batch.edge_attr.size(), E)
-                        assert torch.isfinite(batch.edge_attr).all()
-                    assert torch.isfinite(batch.x).all()
                     out = model(batch.x, batch.edge_index, batch.edge_attr)
 
                     # --- only use the seed nodes ---

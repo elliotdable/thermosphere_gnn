@@ -3,7 +3,7 @@ import os
 import time
 import torch
 import matplotlib.pyplot as plt
-import csv, json
+import json
 import pandas as pd
 
 from data_processing import train_data_object
@@ -39,8 +39,8 @@ def write_run_to_csv(csv_path, args, test_loss, test_rmse, test_rmse_phys):
         "imf_feature_cols", "geomag_feature_cols",
         "edge_count", "imf_hours", "geomag_days",
         "hidden_dim", "dropout_in", "dropout_hidden",
-        "epochs", "batch_size", "num_neighbors_l1", "num_neighbors_l2", 
-        "learning_rate","imf_resample", "num_workers", "enable_profiling",
+        "epochs", "batch_size", "learning_rate",
+        "imf_resample", "num_workers", "enable_profiling",
         "patience", "period", "net_type", "use_pca"
     ]
 
@@ -145,12 +145,6 @@ def main():
 
     parser.add_argument('--batch_size', '-bs', type=int, default=512,
                         help='Batch size used by NeighborLoader during training.')
-    
-    parser.add_argument('num_neighbors_l1', '-nn1', type=int, default=15,
-                        help='Number of neighbors to sample at the first GNN layer.')
-
-    parser.add_argument('num_neighbors_l2', '-nn2', type=int, default=10,
-                        help='Number of neighbors to sample at the second GNN layer.')
 
     parser.add_argument('--learning_rate', '-lr', type=float, default=1e-3,
                         help='Initial learning rate for the Adam optimizer.')
@@ -219,25 +213,29 @@ def main():
     print(f"# Nodes: {data.num_nodes}")
     print(f"Feature shape: {data.x.shape}")
 
+    if args.net_type == 'gcn':
+        print(f"# Edges: {data.num_edges}")
+        print(f"Edge attr shape: {data.edge_attr.shape}")
+        print("\nEdge attr stats:")
+        print("Mean:", data.edge_attr.mean(0))
+        print("Std:", data.edge_attr.std(0))
+        print("Max:", data.edge_attr.max(0))
+        print("Min:", data.edge_attr.min(0))
+        print("NaNs:", torch.isnan(data.edge_attr).sum())
+
     print('Finished creating data object. Training model...')
     start_time = time.time()
 
-    from train import train_with_neighbour_sampling_gcn
-    train_losses, val_losses, test_loss, test_rmse, test_rmse_phys = train_with_neighbour_sampling_gcn(
-        data,
-        in_channels=data.x.shape[1],
+    from train import train_with_neighbour_sampling_tgn
+    train_losses, val_losses, test_loss, test_rmse, test_rmse_phys = train_with_neighbour_sampling_tgn(
+        data=data,
         model_path=model_path,
         hidden_dim=args.hidden_dim,
-        dropout_in=args.dropout_in,
-        dropout_hidden=args.dropout_hidden,
-        epochs=args.epochs,
         batch_size=args.batch_size,
-        num_neighbors_l1=args.num_neighbors_l1,
-        num_neighbors_l2=args.num_neighbors_l2,
         learning_rate=args.learning_rate,
-        num_workers=args.num_workers,
-        enable_profiling=args.enable_profiling,
-        patience=args.patience
+        epochs=args.epochs,
+        patience=args.patience,
+        use_amp=True
     )
 
     print(f"Took: {(time.time() - start_time)/3600:.2f} hours to train model.")
