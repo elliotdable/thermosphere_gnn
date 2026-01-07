@@ -80,7 +80,7 @@ apptainer exec --nv \
     echo 'Conda environment activated'
 
     # Run training in background and get PID
-    python /mnt/fpi_gnn_training/src/${NET_TYPE}/run_main.py \      
+    python /mnt/fpi_gnn_training/src/${NET_TYPE}/run_main.py \
       --fpi_path /mnt/fpi_gnn_training/data/sampled_windii_temps_200_300km_cleaned.csv \
       --imf_path /mnt/fpi_gnn_training/data/omni_imf_data_1990_2025_cleaned.csv \
       --geomag_path /mnt/fpi_gnn_training/data/solar_geomag_dst_data.csv \

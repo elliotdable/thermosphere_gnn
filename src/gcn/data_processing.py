@@ -369,7 +369,7 @@ def get_node_features_with_timeseries(
     # --------------------------------------------------
 
     # --- Helper to fetch both windows for a given fpi timestamp
-    def get_both_timeseries(t, imf_cols, geomag_cols):
+    def get_both_timeseries(t, imf_cols, geomag_cols, mode):
         imf_feat = get_past_timeseries(
             imf_df, t, imf_cols, window_hours=imf_hours, end_offset=pd.Timedelta(minutes=30), mode=mode
         )
@@ -386,7 +386,8 @@ def get_node_features_with_timeseries(
                 get_both_timeseries,
                 fpi_df["datetime"],          # iterable arg
                 repeat(imf_feature_cols),    # constant arg
-                repeat(geomag_feature_cols)  # constant arg
+                repeat(geomag_feature_cols),  # constant arg
+                repeat(mode),                # constant arg
             )
         )
     print("Time series features extracted.", file=sys.stdout, flush=True)
@@ -810,9 +811,6 @@ def inference_data_object( fpi_df,imf_path,geomag_path, start_date, end_date, im
     # Scale edge attributes using stored scaler  
     edge_attr = edge_attr_scaler.transform(edge_attr)
     edge_attr = torch.tensor(edge_attr, dtype=torch.float32)
-
-    src = edge_index[0]
-    dst = edge_index[1]
 
     # Prepare the target (scaled with stored scaler)
     if target_col in fpi_df.columns:

@@ -12,7 +12,7 @@ from contextlib import nullcontext
 import math
 import numpy as np
 
-from gnn_model import SpatioTemporalGCN
+from model import SpatioTemporalGCN
 
 # --- Signal Handler ---
 def create_signal_handler(model, model_path):
